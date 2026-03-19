@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QBO Sales Order Importer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0f1e;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1f2f4a;
+    --accent: #00d4ff;
+    --accent2: #00ff9d;
+    --accent3: #ff6b35;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --success: #00ff9d;
+    --error: #ff4444;
+    --warning: #ffb830;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at 20% 20%, rgba(0,212,255,0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(0,255,157,0.04) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 28px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .logo-text {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text span { color: var(--accent); }
+
+  .status-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .status-badge.disconnected { border-color: var(--muted); color: var(--muted); }
+  .status-badge.connected { border-color: var(--accent2); color: var(--accent2); }
+  .status-badge.connecting { border-color: var(--warning); color: var(--warning); }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* STEPPER */
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 40px;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+
+  .step-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+
+  .step.active .step-num {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,212,255,0.1);
+    box-shadow: 0 0 20px rgba(0,212,255,0.2);
+  }
+
+  .step.done .step-num {
+    border-color: var(--accent2);
+    background: var(--accent2);
+    color: var(--bg);
+  }
+
+  .step-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .step.active .step-label { color: var(--text); }
+  .step.done .step-label { color: var(--accent2); }
+
+  .step-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    margin: 0 12px;
+  }
+
+  /* PANELS */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    display: none;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .panel.active { display: block; }
+
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  .panel-title {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+
+  .panel-sub {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 28px;
+    line-height: 1.6;
+  }
+
+  /* CREDENTIALS */
+  .creds-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .field-group { display: flex; flex-direction: column; gap: 8px; }
+  .field-group.full { grid-column: 1/-1; }
+
+  label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  input, select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+  }
+
+  select option { background: var(--surface2); }
+
+  .info-box {
+    background: rgba(0,212,255,0.05);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+    margin-bottom: 20px;
+  }
+
+  .info-box strong { color: var(--accent); }
+  .info-box ol, .info-box ul { padding-left: 18px; margin-top: 8px; }
+  .info-box li { margin-bottom: 4px; }
+  .info-box a { color: var(--accent); }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 28px;
+    border-radius: 10px;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #0099bb);
+    color: var(--bg);
+  }
+
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,212,255,0.3); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-success {
+    background: linear-gradient(135deg, var(--accent2), #00cc7a);
+    color: var(--bg);
+  }
+
+  .btn-success:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,255,157,0.3); }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+
+  /* UPLOAD ZONE */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: var(--surface2);
+    position: relative;
+  }
+
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(0,212,255,0.04);
+  }
+
+  .upload-zone input[type=file] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .upload-icon { font-size: 48px; margin-bottom: 16px; }
+  .upload-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .upload-sub { font-size: 13px; color: var(--muted); }
+
+  .file-loaded {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: rgba(0,255,157,0.06);
+    border: 1px solid rgba(0,255,157,0.2);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-top: 16px;
+  }
+
+  .file-loaded-icon { font-size: 28px; }
+  .file-loaded-name { font-weight: 700; font-size: 15px; }
+  .file-loaded-meta { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+
+  /* MAPPING */
+  .mapping-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px 16px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .mapping-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--accent2);
+    padding: 10px 14px;
+    background: rgba(0,255,157,0.06);
+    border: 1px solid rgba(0,255,157,0.15);
+    border-radius: 8px;
+    font-weight: 500;
+  }
+
+  .mapping-arrow { color: var(--muted); font-size: 18px; text-align: center; }
+
+  .mapping-grid select {
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+
+  /* PREVIEW TABLE */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  thead { background: var(--surface2); }
+
+  th {
+    padding: 12px 14px;
+    text-align: left;
+    color: var(--accent);
+    font-size: 10px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid rgba(31,47,74,0.5);
+    color: var(--text);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(0,212,255,0.03); }
+
+  .row-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+
+  .row-status.pending { background: rgba(100,116,139,0.2); color: var(--muted); }
+  .row-status.success { background: rgba(0,255,157,0.15); color: var(--accent2); }
+  .row-status.error { background: rgba(255,68,68,0.15); color: var(--error); }
+  .row-status.importing { background: rgba(0,212,255,0.15); color: var(--accent); }
+
+  /* SUMMARY CARDS */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .summary-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .summary-card .val {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .summary-card .lbl {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .summary-card.success-card .val { color: var(--accent2); }
+  .summary-card.error-card .val { color: var(--error); }
+  .summary-card.total-card .val { color: var(--accent); }
+
+  /* PROGRESS */
+  .progress-bar-wrap {
+    background: var(--surface2);
+    border-radius: 4px;
+    height: 6px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 4px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  .progress-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  /* ALERT */
+  .alert {
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: none;
+    line-height: 1.6;
+  }
+
+  .alert.show { display: block; }
+  .alert.error { background: rgba(255,68,68,0.1); border: 1px solid rgba(255,68,68,0.3); color: #ff8888; }
+  .alert.success { background: rgba(0,255,157,0.08); border: 1px solid rgba(0,255,157,0.25); color: var(--accent2); }
+  .alert.info { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.25); color: var(--accent); }
+
+  /* TABS */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 24px;
+    width: fit-content;
+  }
+
+  .tab {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--muted);
+    border: none;
+    background: none;
+    font-family: 'Syne', sans-serif;
+  }
+
+  .tab.active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  /* FOOTER */
+  .footer {
+    text-align: center;
+    padding: 24px 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  .tag {
+    display: inline-block;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.2);
+    color: var(--accent);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-family: 'DM Mono', monospace;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  /* LOG VIEWER */
+  .log-panel {
+    background: #060d1a;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 24px;
+    overflow: hidden;
+  }
+
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .log-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .log-count {
+    background: rgba(0,212,255,0.15);
+    border: 1px solid rgba(0,212,255,0.25);
+    color: var(--accent);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .log-count.has-errors {
+    background: rgba(255,68,68,0.15);
+    border-color: rgba(255,68,68,0.3);
+    color: var(--error);
+  }
+
+  .log-body {
+    height: 220px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .log-body::-webkit-scrollbar { width: 4px; }
+  .log-body::-webkit-scrollbar-track { background: transparent; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-entry { display: flex; gap: 12px; align-items: baseline; }
+  .log-time { color: var(--muted); flex-shrink: 0; font-size: 10px; }
+  .log-level { flex-shrink: 0; font-weight: 500; width: 50px; }
+  .log-level.INFO { color: var(--accent); }
+  .log-level.SUCCESS { color: var(--accent2); }
+  .log-level.ERROR { color: var(--error); }
+  .log-level.WARN { color: var(--warning); }
+  .log-msg { color: var(--text); word-break: break-all; }
+
+  .log-footer {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  @media (max-width: 640px) {
+    .creds-grid { grid-template-columns: 1fr; }
+    .mapping-grid { grid-template-columns: 1fr; }
+    .mapping-arrow { display: none; }
+    .stepper { display: none; }
+    header { flex-direction: column; gap: 16px; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📊</div>
+      <div>
+        <div class="logo-text">QBO <span>Importer</span></div>
+        <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;">Sales Order Import Tool</div>
+      </div>
+    </div>
+    <div class="status-badge disconnected" id="connectionBadge">
+      <div class="dot"></div>
+      <span id="connectionText">Not Connected</span>
+    </div>
+  </header>
+
+  <!-- STEPPER -->
+  <div class="stepper">
+    <div class="step active" id="step1">
+      <div class="step-num">1</div>
+      <div class="step-label">Connect QBO</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step2">
+      <div class="step-num">2</div>
+      <div class="step-label">Upload File</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step3">
+      <div class="step-num">3</div>
+      <div class="step-label">Map Fields</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step4">
+      <div class="step-num">4</div>
+      <div class="step-label">Preview</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step5">
+      <div class="step-num">5</div>
+      <div class="step-label">Import</div>
+    </div>
+  </div>
+
+  <!-- PANEL 1: CONNECT -->
+  <div class="panel active" id="panel1">
+    <div class="panel-title">Connect to QuickBooks Online</div>
+    <div class="panel-sub">Enter your Cloudflare Worker URL and Realm ID, then click Connect. You'll be redirected to Intuit to authorize securely.</div>
+
+    <div id="alertConnect" class="alert"></div>
+
+    <div class="info-box" id="workerSetupBox">
+      <strong>⚙️ First Time Setup — Enter Your Worker URL</strong>
+      Enter the Cloudflare Worker URL you deployed (e.g. <code>https://qbo-proxy.YOUR-NAME.workers.dev</code>).
+      You only need to do this once.
+    </div>
+
+    <div class="creds-grid">
+      <div class="field-group full">
+        <label>Cloudflare Worker URL</label>
+        <input type="text" id="workerUrl" placeholder="https://qbo-proxy.your-name.workers.dev" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'DM Mono',monospace;">Paste the URL of your deployed Cloudflare Worker here</div>
+      </div>
+      <div class="field-group">
+        <label>Realm ID (Company ID)</label>
+        <input type="text" id="realmId" placeholder="9341456482053011" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'DM Mono',monospace;">Found in your QBO URL: ?realmId=XXXXXXXXX</div>
+      </div>
+      <div class="field-group">
+        <label>Environment</label>
+        <select id="environment">
+          <option value="production">Production (Live)</option>
+          <option value="sandbox">Sandbox (Testing)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="startOAuth()">🔗 Connect to QuickBooks</button>
+      <button class="btn btn-ghost" onclick="useDemoMode()">🧪 Use Demo Mode</button>
+    </div>
+
+    <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border);">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);margin-bottom:12px;letter-spacing:.5px;text-transform:uppercase;">Already have a token? Paste it directly</div>
+      <div class="creds-grid">
+        <div class="field-group full">
+          <label>OAuth Access Token (manual)</label>
+          <input type="password" id="accessToken" placeholder="eyJlbmMiOiJBMTI4Q0JDLUhTMjU2..." />
+        </div>
+      </div>
+      <button class="btn btn-ghost" style="margin-top:8px;" onclick="testManualToken()">🔌 Test Manual Token</button>
+    </div>
+  </div>
+
+  <!-- PANEL 2: UPLOAD -->
+  <div class="panel" id="panel2">
+    <div class="panel-title">Upload Your Order File</div>
+    <div class="panel-sub">Upload an Excel (.xlsx) or CSV file containing your customer orders. First row should be column headers.</div>
+
+    <div id="alertUpload" class="alert"></div>
+
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(event)" />
+      <div class="upload-icon">📂</div>
+      <div class="upload-title">Drop your file here or click to browse</div>
+      <div class="upload-sub">Supports .xlsx, .xls, and .csv — max 10MB</div>
+    </div>
+
+    <div id="fileInfo" style="display:none;"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+      <button class="btn btn-primary" id="btnUploadNext" onclick="goToStep(3)" disabled>Next: Map Fields →</button>
+    </div>
+  </div>
+
+  <!-- PANEL 3: MAP FIELDS -->
+  <div class="panel" id="panel3">
+    <div class="panel-title">Map Your Columns</div>
+    <div class="panel-sub">Match your file's column headers to the QuickBooks Sales Order fields. Required fields are marked with *</div>
+
+    <div id="alertMapping" class="alert"></div>
+    <div id="mappingContainer"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(2)">← Back</button>
+      <button class="btn btn-primary" onclick="buildPreview()">Preview Orders →</button>
+    </div>
+  </div>
+
+  <!-- PANEL 4: PREVIEW -->
+  <div class="panel" id="panel4">
+    <div class="panel-title">Preview Import Data</div>
+    <div class="panel-sub">Review your orders below before sending them to QuickBooks. All data is editable before import.</div>
+
+    <div id="alertPreview" class="alert"></div>
+    <div id="previewStats" class="summary-grid"></div>
+    <div class="table-wrap">
+      <table id="previewTable">
+        <thead id="previewHead"></thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(3)">← Back</button>
+      <button class="btn btn-success" onclick="startImport()">🚀 Import to QuickBooks</button>
+    </div>
+  </div>
+
+  <!-- PANEL 5: IMPORT -->
+  <div class="panel" id="panel5">
+    <div class="panel-title">Importing to QuickBooks...</div>
+    <div class="panel-sub" id="importSubtitle">Sending your sales orders to QuickBooks Online Plus.</div>
+
+    <div id="alertImport" class="alert"></div>
+
+    <div class="progress-label" id="progressLabel">Preparing...</div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div class="summary-grid" id="importSummary"></div>
+
+    <div class="table-wrap" style="margin-top:16px;">
+      <table id="importResultTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>PO Number</th>
+            <th>Customer</th>
+            <th>Items</th>
+            <th>Status</th>
+            <th>QBO ID</th>
+          </tr>
+        </thead>
+        <tbody id="importResultBody"></tbody>
+      </table>
+    </div>
+
+    <div class="btn-row" id="importDoneBtns" style="display:none;">
+      <button class="btn btn-ghost" onclick="resetApp()">↩ Import Another File</button>
+      <button class="btn btn-primary" onclick="downloadReport()">📄 Download Report</button>
+      <button class="btn btn-ghost" onclick="downloadLog()">🪵 Download Error Log</button>
+    </div>
+  </div>
+
+  <!-- LOG PANEL -->
+  <div class="log-panel">
+    <div class="log-header" onclick="toggleLog()">
+      <div class="log-header-left">
+        🪵 &nbsp;Session Log
+        <span class="log-count" id="logCount">0 entries</span>
+        <span class="log-count has-errors" id="logErrorCount" style="display:none">0 errors</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace" id="logToggleLabel">▲ collapse</div>
+    </div>
+    <div class="log-body" id="logBody"></div>
+    <div class="log-footer">
+      <button class="btn btn-ghost" style="padding:6px 14px;font-size:11px;" onclick="downloadLog()">⬇ Download Log (.txt)</button>
+      <button class="btn btn-ghost" style="padding:6px 14px;font-size:11px;" onclick="clearLog()">🗑 Clear</button>
+    </div>
+  </div>
+
+  <div class="footer">QBO Sales Order Importer — Uses Intuit QuickBooks Online API v3 &nbsp;|&nbsp; OAuth 2.0 Secured &nbsp;|&nbsp; Data never leaves your browser</div>
+</div>
+
+<script>
+// ── LOGGING SYSTEM ─────────────────────────────────────────────────────────
+const logger = {
+  entries: [],
+  errorCount: 0,
+  logVisible: true,
+
+  _ts() {
+    return new Date().toTimeString().slice(0,8);
+  },
+
+  _write(level, msg, detail='') {
+    const entry = {
+      time: new Date().toISOString(),
+      timeShort: this._ts(),
+      level,
+      msg,
+      detail
+    };
+    this.entries.push(entry);
+    if (level === 'ERROR') this.errorCount++;
+    this._render(entry);
+    this._updateCounts();
+  },
+
+  info(msg, detail='')    { this._write('INFO', msg, detail); },
+  success(msg, detail='') { this._write('SUCCESS', msg, detail); },
+  error(msg, detail='')   { this._write('ERROR', msg, detail); },
+  warn(msg, detail='')    { this._write('WARN', msg, detail); },
+
+  _render(entry) {
+    const body = document.getElementById('logBody');
+    if (!body) return;
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `
+      <span class="log-time">${entry.timeShort}</span>
+      <span class="log-level ${entry.level}">${entry.level}</span>
+      <span class="log-msg">${entry.msg}${entry.detail ? ' — <span style="color:var(--muted)">'+entry.detail+'</span>' : ''}</span>`;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+  },
+
+  _updateCounts() {
+    const countEl = document.getElementById('logCount');
+    const errEl = document.getElementById('logErrorCount');
+    if (countEl) countEl.textContent = `${this.entries.length} entries`;
+    if (errEl) {
+      if (this.errorCount > 0) {
+        errEl.style.display = 'inline';
+        errEl.textContent = `${this.errorCount} error${this.errorCount>1?'s':''}`;
+      } else {
+        errEl.style.display = 'none';
+      }
+    }
+  },
+
+  toText() {
+    const header = [
+      '═══════════════════════════════════════════════════════',
+      '  QBO Sales Order Importer — Session Error Log',
+      `  Generated: ${new Date().toLocaleString()}`,
+      '═══════════════════════════════════════════════════════',
+      ''
+    ].join('\n');
+    const lines = this.entries.map(e =>
+      `[${e.time}] [${e.level.padEnd(7)}] ${e.msg}${e.detail ? ' | ' + e.detail : ''}`
+    ).join('\n');
+    const footer = [
+      '',
+      '═══════════════════════════════════════════════════════',
+      `  Total entries: ${this.entries.length} | Errors: ${this.errorCount}`,
+      '═══════════════════════════════════════════════════════'
+    ].join('\n');
+    return header + lines + footer;
+  }
+};
+
+function toggleLog() {
+  const body = document.getElementById('logBody');
+  const label = document.getElementById('logToggleLabel');
+  logger.logVisible = !logger.logVisible;
+  body.style.display = logger.logVisible ? 'block' : 'none';
+  label.textContent = logger.logVisible ? '▲ collapse' : '▼ expand';
+}
+
+function clearLog() {
+  logger.entries = [];
+  logger.errorCount = 0;
+  document.getElementById('logBody').innerHTML = '';
+  logger._updateCounts();
+  logger.info('Log cleared by user.');
+}
+
+function downloadLog() {
+  const text = logger.toText();
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `QBO_Import_Log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  logger.info('Log file downloaded.');
+}
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let state = {
+  demo: false,
+  connected: false,
+  credentials: {},
+  rawData: [],
+  headers: [],
+  mappings: {},
+  parsedOrders: [],
+  importResults: [],
+  fileName: ''
+};
+
+const QBO_FIELDS = [
+  { key: 'CustomerRef', label: 'Customer Name', required: true },
+  { key: 'TxnDate', label: 'Order Date', required: true },
+  { key: 'PONumber', label: 'PO Number', required: false },
+  { key: 'ShipAddr', label: 'Ship-to Address', required: false },
+  { key: 'ItemSKU', label: 'Item / SKU', required: true },
+  { key: 'Qty', label: 'Quantity', required: true },
+  { key: 'UnitPrice', label: 'Unit Price', required: true },
+  { key: 'Memo', label: 'Notes / Memo', required: false },
+];
+
+// ── TABS ───────────────────────────────────────────────────────────────────
+function showCredTab(tab) {
+  document.getElementById('credTab').style.display = tab === 'creds' ? 'block' : 'none';
+  document.getElementById('guideTab').style.display = tab === 'guide' ? 'block' : 'none';
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='creds')||(i===1&&tab==='guide')));
+}
+
+// ── STEPPER ────────────────────────────────────────────────────────────────
+function goToStep(n) {
+  for (let i = 1; i <= 5; i++) {
+    const p = document.getElementById('panel'+i);
+    const s = document.getElementById('step'+i);
+    p.classList.toggle('active', i === n);
+    s.classList.remove('active','done');
+    if (i < n) s.classList.add('done');
+    else if (i === n) s.classList.add('active');
+  }
+}
+
+// ── ALERTS ─────────────────────────────────────────────────────────────────
+function showAlert(id, msg, type='error') {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = `alert ${type} show`;
+}
+
+function hideAlert(id) {
+  document.getElementById(id).className = 'alert';
+}
+
+// ── CONNECTION ─────────────────────────────────────────────────────────────
+function startOAuth() {
+  const workerUrl = document.getElementById('workerUrl').value.trim().replace(/\/$/, '');
+  const realmId   = document.getElementById('realmId').value.trim().replace(/\s/g, '');
+  const env       = document.getElementById('environment').value;
+
+  if (!workerUrl) { showAlert('alertConnect', '⚠️ Please enter your Cloudflare Worker URL.', 'error'); return; }
+  if (!realmId)   { showAlert('alertConnect', '⚠️ Please enter your Realm ID.', 'error'); return; }
+
+  // Save to session so we can retrieve after redirect
+  sessionStorage.setItem('qbo_worker_url', workerUrl);
+  sessionStorage.setItem('qbo_realm_id',   realmId);
+  sessionStorage.setItem('qbo_env',        env);
+
+  logger.info('Starting OAuth flow.', `worker=${workerUrl} realmId=${realmId} env=${env}`);
+  showAlert('alertConnect', '🔄 Redirecting to QuickBooks to authorize...', 'info');
+
+  // Small delay so user sees the message, then redirect
+  setTimeout(() => {
+    window.location.href = `${workerUrl}/authorize`;
+  }, 800);
+}
+
+async function handleOAuthCallback() {
+  const params      = new URLSearchParams(window.location.search);
+  const code        = params.get('code');
+  const realmId     = params.get('realmId') || sessionStorage.getItem('qbo_realm_id');
+  const workerUrl   = sessionStorage.getItem('qbo_worker_url');
+  const env         = sessionStorage.getItem('qbo_env') || 'production';
+
+  if (!code || !workerUrl) return; // Not a callback
+
+  logger.info('OAuth callback received. Exchanging code for token...', `realmId=${realmId}`);
+  showAlert('alertConnect', '🔄 Authorizing with QuickBooks...', 'info');
+
+  // Clean URL
+  window.history.replaceState({}, document.title, window.location.pathname);
+
+  try {
+    const resp = await fetch(`${workerUrl}/token`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ code, realmId }),
+    });
+
+    const data = await resp.json();
+
+    if (data.access_token) {
+      state.connected   = true;
+      state.credentials = {
+        accessToken:   data.access_token,
+        refreshToken:  data.refresh_token,
+        realmId,
+        workerUrl,
+        environment:   env,
+        expiresAt:     Date.now() + (data.expires_in * 1000)
+      };
+
+      // Verify by fetching company info
+      const coResp = await proxyCall(`/v3/company/${realmId}/companyinfo/${realmId}?minorversion=65`, 'GET');
+      const coName = coResp?.CompanyInfo?.CompanyName || 'Your Company';
+
+      updateBadge(true, coName);
+      logger.success(`Connected to QBO.`, `company="${coName}" realmId=${realmId}`);
+      showAlert('alertConnect', `✅ Connected to "${coName}" successfully!`, 'success');
+
+      // Schedule auto token refresh 55 min from now
+      setTimeout(refreshToken, 55 * 60 * 1000);
+
+      setTimeout(() => goToStep(2), 1200);
+    } else {
+      logger.error('Token exchange failed.', data.error || JSON.stringify(data));
+      showAlert('alertConnect', `❌ Authorization failed: ${data.error || 'Unknown error'}. Please try again.`, 'error');
+    }
+  } catch(e) {
+    logger.error('OAuth callback error.', e.message);
+    showAlert('alertConnect', `❌ Error: ${e.message}`, 'error');
+  }
+}
+
+async function refreshToken() {
+  if (!state.credentials?.refreshToken) return;
+  try {
+    const resp = await fetch(`${state.credentials.workerUrl}/refresh`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ refresh_token: state.credentials.refreshToken }),
+    });
+    const data = await resp.json();
+    if (data.access_token) {
+      state.credentials.accessToken  = data.access_token;
+      state.credentials.refreshToken = data.refresh_token;
+      state.credentials.expiresAt    = Date.now() + (data.expires_in * 1000);
+      logger.info('Access token refreshed automatically.');
+      setTimeout(refreshToken, 55 * 60 * 1000);
+    } else {
+      logger.warn('Token refresh failed. User may need to reconnect.', data.error);
+    }
+  } catch(e) {
+    logger.warn('Token refresh network error.', e.message);
+  }
+}
+
+async function proxyCall(endpoint, method='GET', body=null) {
+  const { workerUrl, accessToken, realmId, environment } = state.credentials;
+  const resp = await fetch(`${workerUrl}/api`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ endpoint, method, body, access_token: accessToken, realmId, environment }),
+  });
+  return resp.json();
+}
+
+async function testManualToken() {
+  const token   = document.getElementById('accessToken').value.trim();
+  const realmId = document.getElementById('realmId').value.trim().replace(/\s/g, '');
+  const env     = document.getElementById('environment').value;
+  const worker  = document.getElementById('workerUrl').value.trim().replace(/\/$/, '');
+
+  if (!token)   { showAlert('alertConnect', '⚠️ Please paste your Access Token.', 'error'); return; }
+  if (!realmId) { showAlert('alertConnect', '⚠️ Please enter your Realm ID.', 'error'); return; }
+  if (!worker)  { showAlert('alertConnect', '⚠️ Please enter your Worker URL (needed to proxy the API call).', 'error'); return; }
+
+  showAlert('alertConnect', '🔄 Testing token...', 'info');
+  logger.info('Testing manual token.', `realmId=${realmId} env=${env}`);
+
+  state.credentials = { accessToken: token, realmId, workerUrl: worker, environment: env };
+
+  try {
+    const data = await proxyCall(`/v3/company/${realmId}/companyinfo/${realmId}?minorversion=65`, 'GET');
+    if (data?.CompanyInfo) {
+      const coName = data.CompanyInfo.CompanyName || 'Your Company';
+      state.connected = true;
+      updateBadge(true, coName);
+      logger.success(`Manual token valid. Connected to "${coName}".`);
+      showAlert('alertConnect', `✅ Connected to "${coName}"!`, 'success');
+      setTimeout(() => goToStep(2), 1200);
+    } else {
+      const errMsg = data?.Fault?.Error?.[0]?.Message || 'Invalid token or wrong Realm ID';
+      logger.error('Manual token test failed.', errMsg);
+      showAlert('alertConnect', `❌ ${errMsg}`, 'error');
+    }
+  } catch(e) {
+    logger.error('Manual token test network error.', e.message);
+    showAlert('alertConnect', `❌ Error: ${e.message}`, 'error');
+  }
+}
+
+function useDemoMode() {
+  state.demo = true;
+  state.connected = true;
+  state.credentials = { baseUrl: 'https://sandbox-quickbooks.api.intuit.com', realmId: 'demo' };
+  updateBadge(true, 'Demo Mode');
+  logger.warn('Demo Mode activated. No real API calls will be made.');
+  showAlert('alertConnect', '🧪 Demo Mode active — imports will be simulated, nothing sent to QuickBooks.', 'info');
+  setTimeout(() => goToStep(2), 1000);
+}
+
+function updateBadge(connected, name='') {
+  const badge = document.getElementById('connectionBadge');
+  const text = document.getElementById('connectionText');
+  badge.className = `status-badge ${connected ? 'connected' : 'disconnected'}`;
+  text.textContent = connected ? `Connected: ${name}` : 'Not Connected';
+}
+
+// ── EUROCRAFT SMART PARSER ─────────────────────────────────────────────────
+// Knows exactly where to find data in your Eurocraft order template
+function parseEurocraftWorkbook(wb) {
+  const allOrders = [];
+
+  wb.SheetNames.forEach(sheetName => {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (rows.length < 5) return;
+
+    // ── Extract header fields ──────────────────────────────────────────────
+    let poNumber   = '';
+    let orderDate  = '';
+    let customer   = '';
+    let address    = '';
+    let city       = '';
+    let reference  = '';
+    let dataStartRow = -1;
+
+    for (let r = 0; r < Math.min(35, rows.length); r++) {
+      const row = rows[r];
+      const r0  = String(row[0] || '').trim();
+      const r1  = String(row[1] || '').trim();
+      const r2  = String(row[2] || '').trim();
+      const r4  = String(row[4] || '').trim();
+      const r5  = String(row[5] || '').trim();
+      const r9  = String(row[9] || '').trim();
+
+      if (r0 === 'PURCHASE ORDER:')    { poNumber  = r1; orderDate = r5; reference = r9; }
+      if (r0 === 'Company' && r2 && !customer) { customer  = r2; }
+      if (r0 === 'Address' && r2 && !address)  { address   = r2; }
+      if (r0 === 'City'    && r2 && !city)      { city      = r2; }
+
+      // Find the line-item header row (has EC SKU or SKU in col 0)
+      if ((r0 === 'EC SKU' || r0 === 'SKU') && dataStartRow === -1) {
+        dataStartRow = r + 1; // data starts next row
+      }
+    }
+
+    const shipAddr = [address, city].filter(Boolean).join(', ');
+    const memo     = reference ? `Ref: ${reference} | Sheet: ${sheetName}` : `Sheet: ${sheetName}`;
+
+    if (dataStartRow === -1) {
+      logger.warn(`Sheet "${sheetName}" — could not find data rows, skipping.`);
+      return;
+    }
+
+    // ── Extract line items ─────────────────────────────────────────────────
+    for (let r = dataStartRow; r < rows.length; r++) {
+      const row  = rows[r];
+      const sku  = String(row[0] || '').trim();
+      const hmFinish = String(row[1] || '').trim();
+      const ecFinish = String(row[2] || '').trim();
+      const desc = String(row[3] || '').trim();
+      const qty  = row[5];
+      const w    = row[6];
+      const h    = row[7];
+      const priceEa = row[10];
+      const priceTotal = row[11];
+
+      // Stop at totals rows
+      if (sku && sku.toUpperCase().includes('TOTAL')) break;
+
+      // Skip rows without SKU and quantity
+      if (!sku || !qty || isNaN(parseFloat(qty))) continue;
+
+      // Build item name: SKU + finish + description
+      const itemParts = [sku, hmFinish, ecFinish, desc].filter(Boolean);
+      const itemName  = itemParts.join(' | ');
+      const sizeNote  = (w && h) ? ` [${w}" x ${h}"]` : '';
+
+      allOrders.push({
+        _sheet:    sheetName,
+        customer:  customer  || 'EUROCRAFT CABINETS, INC.',
+        date:      orderDate || new Date().toISOString().slice(0,10),
+        poNumber:  poNumber  || '',
+        shipAddr:  shipAddr  || '',
+        sku:       itemName + sizeNote,
+        qty:       parseFloat(qty),
+        price:     parseFloat(priceEa) || 0,
+        memo:      memo,
+        status:    'pending'
+      });
+    }
+
+    logger.info(`Sheet "${sheetName}" parsed.`, `customer="${customer}" PO="${poNumber}" items=${allOrders.filter(o=>o._sheet===sheetName).length}`);
+  });
+
+  return allOrders;
+}
+
+function isEurocraftFormat(wb) {
+  // Detect Eurocraft format by checking if row 1 contains the title
+  const ws  = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  const r0   = String(rows[0]?.[0] || '');
+  return r0.includes('MASTERCRAFT FINISHING') || r0.includes('EUROCRAFT');
+}
+
+// ── FILE HANDLING ──────────────────────────────────────────────────────────
+function handleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  state.fileName = file.name;
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (!['xlsx','xls','csv'].includes(ext)) {
+    showAlert('alertUpload','❌ Unsupported file type. Please upload .xlsx, .xls, or .csv','error'); return;
+  }
+
+  hideAlert('alertUpload');
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    try {
+      let wb;
+      if (ext === 'csv') {
+        wb = XLSX.read(e.target.result, { type: 'string' });
+      } else {
+        wb = XLSX.read(e.target.result, { type: 'array' });
+      }
+
+      // ── Detect Eurocraft format ──────────────────────────────────────────
+      if (isEurocraftFormat(wb)) {
+        logger.info('Eurocraft order format detected — using smart parser.', `sheets=${wb.SheetNames.length}`);
+        const orders = parseEurocraftWorkbook(wb);
+
+        if (orders.length === 0) {
+          showAlert('alertUpload','❌ No line items found in the file. Check the file format.','error'); return;
+        }
+
+        state.parsedOrders = orders.map((o, i) => ({ ...o, _idx: i + 1 }));
+        state.eurocraftMode = true;
+
+        const infoEl = document.getElementById('fileInfo');
+        infoEl.style.display = 'flex';
+        infoEl.innerHTML = `
+          <div class="file-loaded">
+            <div class="file-loaded-icon">📊</div>
+            <div>
+              <div class="file-loaded-name">${file.name}</div>
+              <div class="file-loaded-meta">
+                ✅ Eurocraft format detected · ${wb.SheetNames.length} sheets · ${orders.length} line items · ${(file.size/1024).toFixed(1)} KB
+              </div>
+            </div>
+          </div>`;
+
+        document.getElementById('btnUploadNext').disabled = false;
+        document.getElementById('btnUploadNext').textContent = 'Preview Orders →';
+        document.getElementById('btnUploadNext').onclick = () => buildEurocraftPreview();
+
+      } else {
+        // ── Standard flat file ───────────────────────────────────────────
+        state.eurocraftMode = false;
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        if (json.length === 0) { showAlert('alertUpload','❌ File appears empty.','error'); return; }
+
+        state.rawData = json;
+        state.headers = Object.keys(json[0]);
+        logger.info(`Standard file parsed.`, `file="${file.name}" rows=${json.length} columns=${state.headers.length}`);
+
+        const infoEl = document.getElementById('fileInfo');
+        infoEl.style.display = 'flex';
+        infoEl.innerHTML = `
+          <div class="file-loaded">
+            <div class="file-loaded-icon">📋</div>
+            <div>
+              <div class="file-loaded-name">${file.name}</div>
+              <div class="file-loaded-meta">${json.length} rows · ${state.headers.length} columns · ${(file.size/1024).toFixed(1)} KB</div>
+            </div>
+          </div>`;
+
+        document.getElementById('btnUploadNext').disabled = false;
+        document.getElementById('btnUploadNext').textContent = 'Next: Map Fields →';
+        document.getElementById('btnUploadNext').onclick = () => goToStep(3);
+        buildMappingUI();
+      }
+
+    } catch(err) {
+      logger.error('File parse error.', err.message);
+      showAlert('alertUpload',`❌ Could not read file: ${err.message}`,'error');
+    }
+  };
+
+  if (ext === 'csv') reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+function buildEurocraftPreview() {
+  // Skip mapping step — go straight to preview
+  const head = document.getElementById('previewHead');
+  const body = document.getElementById('previewBody');
+
+  head.innerHTML = `<tr>
+    <th>#</th><th>Sheet</th><th>Customer</th><th>PO #</th>
+    <th>SKU / Item</th><th>Qty</th><th>Unit Price</th><th>Date</th><th>Status</th>
+  </tr>`;
+
+  body.innerHTML = state.parsedOrders.map(o => `
+    <tr>
+      <td>${o._idx}</td>
+      <td style="font-size:10px;color:var(--accent)">${o._sheet}</td>
+      <td>${o.customer}</td>
+      <td>${o.poNumber || '—'}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${o.sku}">${o.sku}</td>
+      <td>${o.qty}</td>
+      <td>$${o.price.toFixed(2)}</td>
+      <td>${o.date}</td>
+      <td><span class="row-status pending">● Pending</span></td>
+    </tr>`).join('');
+
+  // Summary
+  const sheets   = [...new Set(state.parsedOrders.map(o=>o._sheet))].length;
+  const customers = [...new Set(state.parsedOrders.map(o=>o.customer))].length;
+  const total     = state.parsedOrders.reduce((s,o) => s + (o.price * o.qty), 0);
+
+  document.getElementById('previewStats').innerHTML = `
+    <div class="summary-card total-card">
+      <div class="val">${state.parsedOrders.length}</div>
+      <div class="lbl">Line Items</div>
+    </div>
+    <div class="summary-card">
+      <div class="val" style="color:var(--accent)">${sheets}</div>
+      <div class="lbl">Sheets / Styles</div>
+    </div>
+    <div class="summary-card">
+      <div class="val" style="color:var(--accent2)">$${total.toFixed(2)}</div>
+      <div class="lbl">Order Total</div>
+    </div>`;
+
+  goToStep(4);
+}
+
+// Drag & drop
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) { document.getElementById('fileInput').files = e.dataTransfer.files; handleFile({ target: { files: [file] } }); }
+});
+
+// ── MAPPING UI ─────────────────────────────────────────────────────────────
+function buildMappingUI() {
+  const container = document.getElementById('mappingContainer');
+  const opts = ['-- Skip --', ...state.headers];
+
+  let html = '<div class="mapping-grid">';
+  html += `<div style="font-size:11px;color:var(--accent);font-family:'DM Mono',monospace;letter-spacing:.8px;text-transform:uppercase">QBO Field</div>
+           <div></div>
+           <div style="font-size:11px;color:var(--accent);font-family:'DM Mono',monospace;letter-spacing:.8px;text-transform:uppercase">Your Column</div>`;
+
+  QBO_FIELDS.forEach(f => {
+    const autoMatch = state.headers.find(h =>
+      h.toLowerCase().replace(/[\s_-]/g,'').includes(f.key.toLowerCase().replace(/[\s_-]/g,'')) ||
+      f.label.toLowerCase().split(' ').some(w => h.toLowerCase().includes(w))
+    ) || '';
+
+    const optHtml = opts.map(o =>
+      `<option value="${o}" ${o === autoMatch ? 'selected' : ''}>${o}</option>`
+    ).join('');
+
+    html += `
+      <div class="mapping-label">${f.label}${f.required ? ' <span style="color:var(--accent3)">*</span>' : ''}</div>
+      <div class="mapping-arrow">→</div>
+      <select id="map_${f.key}">${optHtml}</select>`;
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ── PREVIEW ────────────────────────────────────────────────────────────────
+function buildPreview() {
+  // collect mappings
+  const mappings = {};
+  let missingRequired = [];
+  QBO_FIELDS.forEach(f => {
+    const val = document.getElementById(`map_${f.key}`)?.value;
+    if (val && val !== '-- Skip --') mappings[f.key] = val;
+    else if (f.required) missingRequired.push(f.label);
+  });
+
+  if (missingRequired.length) {
+    showAlert('alertMapping', `⚠️ Please map required fields: ${missingRequired.join(', ')}`, 'error'); return;
+  }
+  hideAlert('alertMapping');
+  state.mappings = mappings;
+
+  // Parse rows
+  state.parsedOrders = state.rawData.map((row, i) => ({
+    _idx: i + 2,
+    customer: row[mappings.CustomerRef] || '',
+    date: row[mappings.TxnDate] || '',
+    poNumber: mappings.PONumber ? row[mappings.PONumber] || '' : '',
+    shipAddr: mappings.ShipAddr ? row[mappings.ShipAddr] || '' : '',
+    sku: row[mappings.ItemSKU] || '',
+    qty: row[mappings.Qty] || '',
+    price: row[mappings.UnitPrice] || '',
+    memo: mappings.Memo ? row[mappings.Memo] || '' : '',
+    status: 'pending'
+  }));
+
+  // Build preview table
+  const head = document.getElementById('previewHead');
+  const body = document.getElementById('previewBody');
+
+  head.innerHTML = `<tr><th>Row</th><th>Customer</th><th>PO #</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Order Date</th><th>Status</th></tr>`;
+  body.innerHTML = state.parsedOrders.map(o => `
+    <tr id="prow_${o._idx}">
+      <td>${o._idx}</td>
+      <td>${o.customer}</td>
+      <td>${o.poNumber || '—'}</td>
+      <td>${o.sku}</td>
+      <td>${o.qty}</td>
+      <td>${o.price ? '$'+parseFloat(o.price).toFixed(2) : '—'}</td>
+      <td>${o.date}</td>
+      <td><span class="row-status pending">● Pending</span></td>
+    </tr>`).join('');
+
+  // Stats
+  document.getElementById('previewStats').innerHTML = `
+    <div class="summary-card total-card">
+      <div class="val">${state.parsedOrders.length}</div>
+      <div class="lbl">Orders Ready</div>
+    </div>
+    <div class="summary-card">
+      <div class="val" style="color:var(--text)">${[...new Set(state.parsedOrders.map(o=>o.customer))].length}</div>
+      <div class="lbl">Unique Customers</div>
+    </div>
+    <div class="summary-card">
+      <div class="val" style="color:var(--warning)">${state.parsedOrders.filter(o=>!o.customer||!o.sku).length}</div>
+      <div class="lbl">Rows w/ Warnings</div>
+    </div>`;
+
+  goToStep(4);
+}
+
+// ── IMPORT ─────────────────────────────────────────────────────────────────
+async function startImport() {
+  goToStep(5);
+  document.getElementById('importDoneBtns').style.display = 'none';
+  const body = document.getElementById('importResultBody');
+  body.innerHTML = '';
+  state.importResults = [];
+
+  // In Eurocraft mode, parsedOrders is already built — use directly
+  const orders = state.parsedOrders;
+  const total  = orders.length;
+  let success = 0, errors = 0;
+
+  updateProgress(0, total, 'Starting import...');
+  logger.info(`Import started.`, `total=${total} mode=${state.demo?'DEMO':state.eurocraftMode?'EUROCRAFT':'STANDARD'} file="${state.fileName}"`);
+
+  for (let i = 0; i < total; i++) {
+    const order = orders[i];
+    updateProgress(i, total, `Importing ${i+1} of ${total}: ${order.sku.slice(0,40)}...`);
+    logger.info(`Sending order ${i+1}/${total}`, `customer="${order.customer}" PO="${order.poNumber}" SKU="${order.sku.slice(0,50)}" qty=${order.qty}`);
+
+    let result;
+    if (state.demo) {
+      result = await simulateImport(order);
+    } else {
+      result = await sendToQBO(order);
+    }
+
+    state.importResults.push(result);
+
+    if (result.success) {
+      logger.success(`Order ${i+1} created.`, `qboId=${result.qboId}`);
+    } else {
+      logger.error(`Order ${i+1} failed.`, `error="${result.error}"`);
+    }
+
+    const statusHtml = result.success
+      ? `<span class="row-status success">✓ Created</span>`
+      : `<span class="row-status error">✗ Failed</span>`;
+
+    body.innerHTML += `
+      <tr>
+        <td>${i+1}</td>
+        <td>${order.poNumber || '—'}</td>
+        <td>${order.customer}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${order.sku}">${order.sku.slice(0,40)}...</td>
+        <td>${statusHtml}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">${result.qboId || result.error || '—'}</td>
+      </tr>`;
+
+    if (result.success) success++; else errors++;
+    updateSummaryCards(success, errors, total);
+  }
+
+  updateProgress(total, total, 'Import complete!');
+  document.getElementById('importSubtitle').textContent = `Finished importing ${total} orders.`;
+  logger.info(`Import complete.`, `total=${total} success=${total-state.importResults.filter(r=>!r.success).length} failed=${state.importResults.filter(r=>!r.success).length}`);
+
+  const alertEl = document.getElementById('alertImport');
+  if (errors === 0) {
+    showAlert('alertImport', `🎉 All ${total} sales orders imported to QuickBooks successfully!`, 'success');
+  } else {
+    showAlert('alertImport', `⚠️ ${success} orders imported, ${errors} failed. Check the table for details.`, 'error');
+  }
+
+  document.getElementById('importDoneBtns').style.display = 'flex';
+}
+
+async function sendToQBO(order) {
+  const { realmId } = state.credentials;
+  const payload = {
+    CustomerRef: { name: order.customer },
+    TxnDate: formatDate(order.date),
+    PONumber: order.poNumber || undefined,
+    CustomerMemo: order.memo ? { value: order.memo } : undefined,
+    ShipAddr: order.shipAddr ? { Line1: order.shipAddr } : undefined,
+    Line: [{
+      DetailType: 'SalesItemLineDetail',
+      Amount: parseFloat(order.qty) * parseFloat(order.price),
+      SalesItemLineDetail: {
+        ItemRef: { name: order.sku },
+        Qty: parseFloat(order.qty),
+        UnitPrice: parseFloat(order.price)
+      }
+    }]
+  };
+
+  try {
+    const data = await proxyCall(`/v3/company/${realmId}/salesorder?minorversion=65`, 'POST', payload);
+    if (data?.SalesOrder) {
+      return { success: true, qboId: 'SO-' + data.SalesOrder.Id };
+    } else {
+      const errMsg = data?.Fault?.Error?.[0]?.Message || 'API error';
+      const errCode = data?.Fault?.Error?.[0]?.code || '';
+      logger.error('QBO API rejected Sales Order.', `code=${errCode} message=${errMsg}`);
+      return { success: false, error: errMsg };
+    }
+  } catch(e) {
+    logger.error('Network error during Sales Order POST.', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+async function simulateImport(order) {
+  await new Promise(r => setTimeout(r, 300 + Math.random() * 400));
+  const fail = !order.customer || !order.sku;
+  return fail
+    ? { success: false, error: 'Missing required field' }
+    : { success: true, qboId: 'SO-' + Math.floor(10000 + Math.random() * 90000) };
+}
+
+function formatDate(d) {
+  if (!d) return new Date().toISOString().slice(0,10);
+  if (typeof d === 'number') {
+    const date = new Date((d - 25569) * 86400 * 1000);
+    return date.toISOString().slice(0,10);
+  }
+  try { return new Date(d).toISOString().slice(0,10); } catch { return d; }
+}
+
+function updateProgress(done, total, label) {
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = `${label} (${pct}%)`;
+}
+
+function updateSummaryCards(success, errors, total) {
+  document.getElementById('importSummary').innerHTML = `
+    <div class="summary-card total-card"><div class="val">${total}</div><div class="lbl">Total Orders</div></div>
+    <div class="summary-card success-card"><div class="val">${success}</div><div class="lbl">Imported</div></div>
+    <div class="summary-card error-card"><div class="val">${errors}</div><div class="lbl">Failed</div></div>`;
+}
+
+// ── REPORT ─────────────────────────────────────────────────────────────────
+function downloadReport() {
+  const rows = [['Row','Customer','PO Number','SKU','Qty','Unit Price','Order Date','Status','QBO ID']];
+  state.parsedOrders.forEach((o, i) => {
+    const r = state.importResults[i] || {};
+    rows.push([o._idx, o.customer, o.poNumber, o.sku, o.qty, o.price, o.date, r.success ? 'Imported' : 'Failed', r.qboId || r.error || '']);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Import Report');
+  XLSX.writeFile(wb, `QBO_Import_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function resetApp() {
+  logger.info('App reset by user. Starting new session.');
+  state = { demo: false, connected: false, credentials: {}, rawData: [], headers: [], mappings: {}, parsedOrders: [], importResults: [], fileName: '' };
+  document.getElementById('fileInput').value = '';
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('btnUploadNext').disabled = true;
+  updateBadge(false);
+  goToStep(1);
+}
+// ── INIT ───────────────────────────────────────────────────────────────────
+logger.info('QBO Sales Order Importer started.', `version=1.2 date=${new Date().toISOString()}`);
+// Restore saved worker URL if present
+const savedWorker = sessionStorage.getItem('qbo_worker_url');
+const savedRealm  = sessionStorage.getItem('qbo_realm_id');
+if (savedWorker) document.getElementById('workerUrl').value = savedWorker;
+if (savedRealm)  document.getElementById('realmId').value   = savedRealm;
+// Handle OAuth redirect callback
+handleOAuthCallback();
+
+</script>
+</body>
+</html>
